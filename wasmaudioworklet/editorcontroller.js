@@ -1,8 +1,10 @@
 import { loadScript, loadCSS } from './common/scriptloader.js';
+import { compileSong as compileMidiSong } from './midisequencer/songcompiler.js';
+import { postSong as wamPostSong} from './webaudiomodules/wammanager.js';
 
 async function loadCodeMirror() {
-    await loadScript('https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.48.2/codemirror.min.js');
-    await loadScript('https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.48.2/mode/javascript/javascript.js'); 
+    await loadScript('https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.52.2/codemirror.min.js');
+    await loadScript('https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.52.2/mode/javascript/javascript.js'); 
     
     await loadScript('https://codemirror.net/addon/search/search.js');
     await loadScript('https://codemirror.net/addon/search/searchcursor.js');
@@ -69,16 +71,9 @@ export async function initEditor(componentRoot) {
 
     const global = window;
     let pattern_tools_src;
+    let synthsource;
 
     componentRoot.getElementById('savesongbutton').onclick = () => compileAndPostSong();
-
-    window.onkeydown = (k) => {
-        if((event.ctrlKey || event.metaKey) && event.which == 83) {
-            compileAndPostSong();
-            event.preventDefault();
-            return false;
-        }
-    };
 
     window.compileSong = async function(exportwasm=false) {
         const errorMessagesElement = componentRoot.querySelector('#errormessages');
@@ -88,16 +83,31 @@ export async function initEditor(componentRoot) {
 
         const songsource = editor.doc.getValue();
 
+        localStorage.setItem('storedsongcode', songsource);
+        
+        const newsynthsource = assemblyscripteditor.doc.getValue();
+        if (newsynthsource !== synthsource) {
+            synthsource = newsynthsource;
+            localStorage.setItem('storedsynthcode', synthsource);
+        }
+
         let songmode = 'WASM';
         if (songsource.indexOf('SONGMODE=PROTRACKER') >= 0) {
             // special mode: we are building an amiga protracker module
             songmode = 'protracker';
+        } else if (songsource.indexOf('SONGMODE=YOSHIMI') >= 0) {
+            // special mode: yoshimi midi synth
+            songmode = 'yoshimi';
+            try {                
+                return { eventlist: await compileMidiSong(songsource), synthsource: synthsource };
+            } catch(e) {
+                errorMessagesContentElement.innerText = e;
+                errorMessagesElement.style.display = 'block';
+                throw e;
+            }
         }
 
-        localStorage.setItem('storedsongcode', songsource);
-        const synthsource = assemblyscripteditor.doc.getValue();
-        localStorage.setItem('storedsynthcode', synthsource);
-
+        
         eval(pattern_tools_src);
         try {
             window.WASM_SYNTH_LOCATION = null;
@@ -119,7 +129,8 @@ export async function initEditor(componentRoot) {
 
         const spinner = componentRoot.querySelector('.spinner');
         try {
-            if(!window.WASM_SYNTH_LOCATION) {                
+            if (!window.WASM_SYNTH_LOCATION) {
+                // if not a precompiled wasm file available in WASM_SYNTH_LOCATION              
                 spinner.style.display = 'block';
                 await compileWebAssemblySynth(synthsource,
                         exportwasm && songmode === 'WASM' ? song: undefined,
@@ -134,6 +145,7 @@ export async function initEditor(componentRoot) {
         }
         spinner.style.display = 'none';
         console.log('song mode', songmode);
+
         if (songmode === 'protracker') {
             const songworker = new Worker(
                 URL.createObjectURL(new Blob([
@@ -155,6 +167,7 @@ export async function initEditor(componentRoot) {
             }
             return song;
         }
+
         // Use as recording buffer
         window.recordedSongData = {
             instrumentPatternLists: song.instrumentPatternLists.map(pl => new Array(pl.length).fill(0)),
@@ -204,7 +217,9 @@ export async function initEditor(componentRoot) {
         try {
             const song = await compileSong();
             
-            if(window.audioworkletnode) {
+            if (song.eventlist) {
+                await wamPostSong(song.eventlist, song.synthsource);
+            } else if(window.audioworkletnode) {
                 audioworkletnode.port.postMessage({
                     song: song,
                     samplerate: window.audioworkletnode.context.sampleRate, 
@@ -231,7 +246,9 @@ export async function initEditor(componentRoot) {
         const songfilename = Object.keys(gist.files).find(filename => filename.endsWith('.js'));
         storedsongcode = gist.files[songfilename].content;
 
-        const synthfilename = Object.keys(gist.files).find(filename => filename.endsWith('.ts'));
+        const synthfilename = Object.keys(gist.files).find(filename =>
+                        filename.endsWith('.ts') ||
+                        filename.endsWith('.xml'));
         if(synthfilename) {
             console.log(`found synth code in ${synthfilename}`);
             storedsynthcode = gist.files[synthfilename].content;
