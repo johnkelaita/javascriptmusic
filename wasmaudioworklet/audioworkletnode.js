@@ -222,8 +222,9 @@ export function initAudioWorkletNode(componentRoot) {
                     processNoteMessage(note, velocity);
                     
                     window.recordedmidi.push([new Date().getTime()].concat(msg.data));
-                } 
-                wamOnMidi(msg.data);
+                } else {
+                    wamOnMidi(msg.data);
+                }
             };
         }
     }

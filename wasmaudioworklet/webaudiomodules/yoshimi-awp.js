@@ -1,6 +1,8 @@
 // YOSHIMI WAM Processor
 // Jari Kleimola 2018-19 (jari@webaudiomodules.org)
 
+import { SEQ_MSG_LOOP, SEQ_MSG_START_RECORDING, SEQ_MSG_STOP_RECORDING } from '../midisequencer/sequenceconstants.js';
+
 class YOSHIMIAWP extends AudioWorkletGlobalScope.WAMProcessor
 {
   constructor(options) {
@@ -14,13 +16,22 @@ class YOSHIMIAWP extends AudioWorkletGlobalScope.WAMProcessor
     super(options);
     this.numOutChannels = [2];
     this.sequence = [];
+    this.recorded = {};
   }
 
   onmessage (e) {
     var msg  = e.data;
     var data = msg.data;
     switch (msg.type) {
-      case "midi":  this.onmidi(data[0], data[1], data[2]); break;
+      case "midi":
+        this.onmidi(data[0], data[1], data[2]);
+        if (this.recordingActive) {
+          if (!this.recorded[this.currentFrame]) {
+            this.recorded[this.currentFrame] = [];
+          }
+          this.recorded[this.currentFrame].push([data[0], data[1], data[2]]);
+        }
+      break;
       case "sysex": this.onsysex(data); break;
       case "patch": this.onpatch(data); break;
       case "param": this.onparam(msg.key, msg.value); break;
@@ -50,16 +61,37 @@ class YOSHIMIAWP extends AudioWorkletGlobalScope.WAMProcessor
     let currentTime = (this.currentFrame / this.sr) * 1000;
     while (this.sequenceIndex < this.sequence.length &&
         this.sequence[this.sequenceIndex].time < currentTime) {
-      let message = this.sequence[this.sequenceIndex].message;
-      if (message[0] === -1) {
-        // loop
-        this.sequenceIndex = 0;
-        this.currentFrame = 0;
-        currentTime = 0;
-        message = this.sequence[0].message;
-      } 
-      this.WAM._wam_onmidi(this.inst, message[0], message[1], message[2]);      
+
+      while ( this.sequence[this.sequenceIndex].message[0] < 0) {
+        switch (this.sequence[this.sequenceIndex].message[0]) {
+          case SEQ_MSG_LOOP:
+            // loop
+            this.sequenceIndex = 0;
+            this.currentFrame = 0;
+            currentTime = 0;
+            break;
+          case SEQ_MSG_START_RECORDING:
+            this.recordingActive = true;
+            this.sequenceIndex++;
+            break;
+          case SEQ_MSG_STOP_RECORDING:
+            this.recordingActive = false;
+            this.sequenceIndex++;
+            break;
+        }
+      }
+      const message = this.sequence[this.sequenceIndex].message;
+      this.WAM._wam_onmidi(this.inst, message[0], message[1], message[2]);
+
       this.sequenceIndex ++;
+    }
+    if (this.recordingActive && this.recorded[this.currentFrame]) {
+      const recorded = this.recorded[this.currentFrame];
+
+      for (let n=0;n<recorded.length; n++) {
+        const message = recorded[n];
+        this.WAM._wam_onmidi(this.inst, message[0], message[1], message[2])
+      }
     }
     this.currentFrame += this.bufsize;
     return super.process(inputs, outputs, params);
