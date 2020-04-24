@@ -21,7 +21,7 @@ WAM.YOSHIMI = class YOSHIMI extends WAMController
 
   onmessage(msg) {
       if (this.waitForMessageResolve) {
-        this.waitForMessageResolve();
+        this.waitForMessageResolve(msg);
         this.waitForMessageResolve = null;
       }
   }

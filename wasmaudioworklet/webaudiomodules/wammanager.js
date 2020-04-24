@@ -56,6 +56,11 @@ export function resumeWAMSong() {
     wamsynth.sendMessage("set", "seq", lastPostedSong);
 }
 
+export async function getRecordedData() {
+    wamsynth.sendMessage("get", "recorded");
+    return (await wamsynth.waitForMessage()).recorded;
+}
+
 export function onMidi(msg) {
     if (wamsynth) {
         wamsynth.onMidi(msg);

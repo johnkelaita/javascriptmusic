@@ -48,11 +48,13 @@ class YOSHIMIAWP extends AudioWorkletGlobalScope.WAMProcessor
             this.currentFrame = 0;
           }
           this.sequence = msg.data;                    
+        } else if (msg.prop === 'recorded') {
+          this.port.postMessage({ 'recorded': this.recorded });
         } else {
-          this.onmsg(msg.verb, msg.prop, msg.data);          
-        }
-        // ACK
-        this.port.postMessage({ type: msg.type });
+          this.onmsg(msg.verb, msg.prop, msg.data);         
+          // ACK
+          this.port.postMessage({ type: msg.type }); 
+        }        
         break;
     }
   }
