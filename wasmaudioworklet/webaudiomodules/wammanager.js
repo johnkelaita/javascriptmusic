@@ -6,6 +6,7 @@ export let wamsynth;
 
 let wamPaused;
 let lastPostedSong = [];
+let samplerate;
 
 export async function startWAM(actx) {
     wamPaused = false;
@@ -18,6 +19,8 @@ export async function startWAM(actx) {
         await WAM.YOSHIMI.importScripts(actx);
         wamsynth = new WAM.YOSHIMI(actx);
         wamsynth.connect(actx.destination);
+        samplerate = actx.sampleRate;
+
         console.log('WAM synth started');
     }
 }
@@ -58,7 +61,11 @@ export function resumeWAMSong() {
 
 export async function getRecordedData() {
     wamsynth.sendMessage("get", "recorded");
-    return (await wamsynth.waitForMessage()).recorded;
+    const recorded = (await wamsynth.waitForMessage()).recorded;
+    return Object.keys(recorded).sort().reduce((prev, frame) =>
+        prev.concat(recorded[frame].map(event =>
+            [frame / samplerate].concat(event)))
+        , []);
 }
 
 export function onMidi(msg) {
